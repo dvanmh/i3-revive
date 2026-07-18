@@ -10,7 +10,7 @@ use std::error::Error;
 use std::fs::File;
 use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
-use std::{fs, io, os::unix::fs::PermissionsExt, path::Path};
+use std::{fs, io, os::unix::fs::PermissionsExt, path::{Path, PathBuf}};
 use xcb::{x, XidNew};
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -269,6 +269,15 @@ fn get_process_cwd(pid: u32, is_terminal: bool) -> io::Result<String> {
         }
     }
 
+    if let Err(err) = fs::metadata(&path) {
+        if err.kind() == io::ErrorKind::NotFound {
+            let base_dirs = BaseDirs::new().ok_or_else(|| {
+                io::Error::new(io::ErrorKind::NotFound, "Failed to get base directories")
+            })?;
+            path = base_dirs.home_dir().to_path_buf();
+        }
+    }
+
     Ok(path.into_os_string().into_string().unwrap())
 }
 
@@ -438,10 +447,21 @@ pub fn restore_processes() {
             let stderr_log =
                 File::create(stderr_log_path).expect("Failed to create stderr log file");
 
+            let cwd = PathBuf::from(&process.working_directory);
+            let cwd = if let Err(err) = fs::metadata(&cwd) {
+                if err.kind() == io::ErrorKind::NotFound {
+                    base_dirs.home_dir().to_path_buf()
+                } else {
+                    cwd
+                }
+            } else {
+                cwd
+            };
+
             #[allow(clippy::zombie_processes)]
             Command::new(program)
                 .args(args)
-                .current_dir(&process.working_directory)
+                .current_dir(&cwd)
                 .process_group(0)
                 .stdin(Stdio::null())
                 .stdout(Stdio::from(stdout_log))
