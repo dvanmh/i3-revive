@@ -326,16 +326,16 @@ fn convert_to_layout(tree: &mut Value) {
             }
 
             if let Some(title) = props_obj.get("title") {
-                let title = title.as_str().unwrap();
-                if criteria.is_some_and(|crit| crit.contains("title")) {
+                if is_terminal {
+                    swallows.insert(
+                        "title".to_string(),
+                        Value::String(format!("Revive-Terminal-Window-{}", leaf_node_id.unwrap())),
+                    );
+                } else if criteria.is_some_and(|crit| crit.contains("title")) {
+                    let title = title.as_str().unwrap();
                     swallows.insert(
                         "title".to_string(),
                         Value::String(format!("^{}$", escape(title).as_str())),
-                    );
-                } else if is_terminal {
-                    swallows.insert(
-                        "title".to_string(),
-                        Value::String(format!("Revive-Terminal-Window-{}", leaf_node_id.unwrap(),)),
                     );
                 }
             }
