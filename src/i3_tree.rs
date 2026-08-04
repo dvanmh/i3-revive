@@ -1,5 +1,5 @@
 use std::{
-    collections::HashSet,
+    collections::HashMap,
     error::Error,
     fs,
     io::{BufWriter, Write},
@@ -7,12 +7,12 @@ use std::{
 };
 
 use directories::BaseDirs;
-use regex::{escape, Regex};
+use regex::Regex;
 use serde_json::{Map, Value};
 use xcb::{x, XidNew};
 
 use crate::{
-    config::CONFIG,
+    config::{swallow_regex, MatchMode, CONFIG},
     i3ipc::{get_tree, get_workspaces, run_command},
 };
 
@@ -294,7 +294,7 @@ fn convert_to_layout(tree: &mut Value) {
     if is_tree_leaf_node {
         if let Some(window_properties) = tree_obj.get("window_properties") {
             let props_obj = window_properties.as_object().unwrap();
-            let mut criteria: Option<&Vec<HashSet<String>>> = None;
+            let mut criteria: Option<&Vec<HashMap<String, MatchMode>>> = None;
             let mut is_terminal = false;
 
             if let Some(class) = props_obj.get("class") {
@@ -309,13 +309,13 @@ fn convert_to_layout(tree: &mut Value) {
             }
 
             let default_set;
-            let crit_sets: &[HashSet<String>] = match criteria {
+            let crit_sets: &[HashMap<String, MatchMode>] = match criteria {
                 Some(sets) => sets.as_slice(),
                 None => {
                     default_set = {
-                        let mut s = HashSet::new();
-                        s.insert("class".to_string());
-                        s.insert("instance".to_string());
+                        let mut s = HashMap::new();
+                        s.insert("class".to_string(), MatchMode::Exact);
+                        s.insert("instance".to_string(), MatchMode::Exact);
                         s
                     };
                     std::slice::from_ref(&default_set)
@@ -328,22 +328,21 @@ fn convert_to_layout(tree: &mut Value) {
                     let mut swallow = Map::new();
 
                     if let Some(class) = props_obj.get("class") {
-                        let class = class.as_str().unwrap();
-                        if crit.contains("class") {
+                        if let Some(mode) = crit.get("class") {
                             swallow.insert(
                                 "class".to_string(),
-                                Value::String(format!("^{}$", escape(class).as_str())),
+                                Value::String(swallow_regex(class.as_str().unwrap(), mode)),
                             );
                         }
                     }
 
                     if let Some(instance) = props_obj.get("instance") {
-                        if crit.contains("instance") {
+                        if let Some(mode) = crit.get("instance") {
                             swallow.insert(
                                 "instance".to_string(),
-                                Value::String(format!(
-                                    "^{}$",
-                                    escape(instance.as_str().unwrap()).as_str()
+                                Value::String(swallow_regex(
+                                    instance.as_str().unwrap(),
+                                    mode,
                                 )),
                             );
                         }
@@ -358,11 +357,10 @@ fn convert_to_layout(tree: &mut Value) {
                                     leaf_node_id.unwrap()
                                 )),
                             );
-                        } else if crit.contains("title") {
-                            let title = title.as_str().unwrap();
+                        } else if let Some(mode) = crit.get("title") {
                             swallow.insert(
                                 "title".to_string(),
-                                Value::String(format!("^{}$", escape(title).as_str())),
+                                Value::String(swallow_regex(title.as_str().unwrap(), mode)),
                             );
                         }
                     }
