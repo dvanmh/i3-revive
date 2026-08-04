@@ -10,7 +10,11 @@ use std::error::Error;
 use std::fs::File;
 use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
-use std::{fs, io, os::unix::fs::PermissionsExt, path::{Path, PathBuf}};
+use std::{
+    fs, io,
+    os::unix::fs::PermissionsExt,
+    path::{Path, PathBuf},
+};
 use xcb::{x, XidNew};
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -448,26 +452,52 @@ pub fn restore_processes() {
                 File::create(stderr_log_path).expect("Failed to create stderr log file");
 
             let cwd = PathBuf::from(&process.working_directory);
-            let cwd = if let Err(err) = fs::metadata(&cwd) {
-                if err.kind() == io::ErrorKind::NotFound {
+            let cwd = match fs::canonicalize(&cwd) {
+                Ok(cwd) => cwd,
+                Err(err) => {
+                    if err.kind() == io::ErrorKind::NotFound {
+                        eprintln!(
+                            "Warning: working directory '{}' not found, using home directory",
+                            process.working_directory
+                        );
+                    }
                     base_dirs.home_dir().to_path_buf()
-                } else {
-                    cwd
                 }
-            } else {
-                cwd
             };
 
+            let spawn =
+                |cwd: &Path, stdout: File, stderr: File| -> io::Result<std::process::Child> {
+                    Command::new(program)
+                        .args(args)
+                        .current_dir(cwd)
+                        .process_group(0)
+                        .stdin(Stdio::null())
+                        .stdout(Stdio::from(stdout))
+                        .stderr(Stdio::from(stderr))
+                        .spawn()
+                };
+
             #[allow(clippy::zombie_processes)]
-            Command::new(program)
-                .args(args)
-                .current_dir(&cwd)
-                .process_group(0)
-                .stdin(Stdio::null())
-                .stdout(Stdio::from(stdout_log))
-                .stderr(Stdio::from(stderr_log))
-                .spawn()
-                .expect("Failed to spawn process");
+            if let Err(err) = spawn(
+                &cwd,
+                stdout_log
+                    .try_clone()
+                    .expect("Failed to clone stdout log file"),
+                stderr_log
+                    .try_clone()
+                    .expect("Failed to clone stderr log file"),
+            ) {
+                if err.kind() == io::ErrorKind::PermissionDenied {
+                    eprintln!(
+                        "Warning: permission denied to spawn in '{}', using home directory",
+                        process.working_directory
+                    );
+                    spawn(base_dirs.home_dir(), stdout_log, stderr_log)
+                        .expect("Failed to spawn process");
+                } else {
+                    panic!("Failed to spawn process: {}", err);
+                }
+            }
         }
     }
 }
