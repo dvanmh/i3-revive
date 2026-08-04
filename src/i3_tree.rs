@@ -294,8 +294,7 @@ fn convert_to_layout(tree: &mut Value) {
     if is_tree_leaf_node {
         if let Some(window_properties) = tree_obj.get("window_properties") {
             let props_obj = window_properties.as_object().unwrap();
-            let mut swallows = Map::new();
-            let mut criteria: Option<&HashSet<String>> = None;
+            let mut criteria: Option<&Vec<HashSet<String>>> = None;
             let mut is_terminal = false;
 
             if let Some(class) = props_obj.get("class") {
@@ -306,44 +305,73 @@ fn convert_to_layout(tree: &mut Value) {
                     .find(|(k, _)| Regex::new(k).unwrap().is_match(class))
                     .map(|(_, v)| v);
 
-                if criteria.is_none_or(|crit| crit.contains("class")) {
-                    swallows.insert(
-                        "class".to_string(),
-                        Value::String(format!("^{}$", escape(class).as_str())),
-                    );
-                }
-
                 is_terminal = config.terminal_revive_commands.contains_key(class);
             }
 
-            if let Some(instance) = props_obj.get("instance") {
-                if criteria.is_none_or(|crit| crit.contains("instance")) {
-                    swallows.insert(
-                        "instance".to_string(),
-                        Value::String(format!("^{}$", escape(instance.as_str().unwrap()).as_str())),
-                    );
+            let default_set;
+            let crit_sets: &[HashSet<String>] = match criteria {
+                Some(sets) => sets.as_slice(),
+                None => {
+                    default_set = {
+                        let mut s = HashSet::new();
+                        s.insert("class".to_string());
+                        s.insert("instance".to_string());
+                        s
+                    };
+                    std::slice::from_ref(&default_set)
                 }
-            }
+            };
 
-            if let Some(title) = props_obj.get("title") {
-                if is_terminal {
-                    swallows.insert(
-                        "title".to_string(),
-                        Value::String(format!("Revive-Terminal-Window-{}", leaf_node_id.unwrap())),
-                    );
-                } else if criteria.is_some_and(|crit| crit.contains("title")) {
-                    let title = title.as_str().unwrap();
-                    swallows.insert(
-                        "title".to_string(),
-                        Value::String(format!("^{}$", escape(title).as_str())),
-                    );
-                }
-            }
+            let swallows: Vec<Value> = crit_sets
+                .iter()
+                .map(|crit| {
+                    let mut swallow = Map::new();
 
-            tree_obj.insert(
-                "swallows".to_string(),
-                Value::Array(vec![Value::Object(swallows)]),
-            );
+                    if let Some(class) = props_obj.get("class") {
+                        let class = class.as_str().unwrap();
+                        if crit.contains("class") {
+                            swallow.insert(
+                                "class".to_string(),
+                                Value::String(format!("^{}$", escape(class).as_str())),
+                            );
+                        }
+                    }
+
+                    if let Some(instance) = props_obj.get("instance") {
+                        if crit.contains("instance") {
+                            swallow.insert(
+                                "instance".to_string(),
+                                Value::String(format!(
+                                    "^{}$",
+                                    escape(instance.as_str().unwrap()).as_str()
+                                )),
+                            );
+                        }
+                    }
+
+                    if let Some(title) = props_obj.get("title") {
+                        if is_terminal {
+                            swallow.insert(
+                                "title".to_string(),
+                                Value::String(format!(
+                                    "Revive-Terminal-Window-{}",
+                                    leaf_node_id.unwrap()
+                                )),
+                            );
+                        } else if crit.contains("title") {
+                            let title = title.as_str().unwrap();
+                            swallow.insert(
+                                "title".to_string(),
+                                Value::String(format!("^{}$", escape(title).as_str())),
+                            );
+                        }
+                    }
+
+                    Value::Object(swallow)
+                })
+                .collect();
+
+            tree_obj.insert("swallows".to_string(), Value::Array(swallows));
         }
     }
     tree_obj.remove("window_properties");

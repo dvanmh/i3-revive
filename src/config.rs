@@ -1,8 +1,39 @@
 use directories::BaseDirs;
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::sync::OnceLock;
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum SwallowCriteriaValue {
+    Single(Vec<String>),
+    Multiple(Vec<Vec<String>>),
+}
+
+fn deserialize_swallow_criteria<'de, D>(
+    deserializer: D,
+) -> Result<HashMap<String, Vec<HashSet<String>>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let raw = HashMap::<String, SwallowCriteriaValue>::deserialize(deserializer)?;
+    Ok(raw
+        .into_iter()
+        .map(|(k, v)| {
+            let sets = match v {
+                SwallowCriteriaValue::Single(s) => {
+                    vec![s.into_iter().collect::<HashSet<String>>()]
+                }
+                SwallowCriteriaValue::Multiple(m) => m
+                    .into_iter()
+                    .map(|s| s.into_iter().collect::<HashSet<String>>())
+                    .collect(),
+            };
+            (k, sets)
+        })
+        .collect())
+}
 
 #[derive(Deserialize, Debug)]
 pub struct WindowCommandMapping {
@@ -27,7 +58,8 @@ pub struct Config {
     pub window_command_mappings: Vec<WindowCommandMapping>,
     #[serde(default)]
     pub terminal_command_mappings: Vec<TerminalCommandMapping>,
-    pub window_swallow_criteria: HashMap<String, HashSet<String>>,
+    #[serde(deserialize_with = "deserialize_swallow_criteria")]
+    pub window_swallow_criteria: HashMap<String, Vec<HashSet<String>>>,
     pub terminal_allow_revive_processes: HashSet<String>,
     pub terminal_revive_commands: HashMap<String, String>,
 }
