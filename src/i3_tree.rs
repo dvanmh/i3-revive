@@ -148,10 +148,9 @@ pub fn restore_workspaces(stream: &mut UnixStream) {
 
     for window in &windows {
         if window.is_placeholder {
-            conn.send_and_check_request(&x::KillClient {
+            let _ = conn.send_and_check_request(&x::KillClient {
                 resource: window.id,
-            })
-            .unwrap();
+            });
         } else {
             conn.send_and_check_request(&x::UnmapWindow {
                 window: unsafe { XidNew::new(window.id) },
