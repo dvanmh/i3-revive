@@ -43,8 +43,8 @@ fn main() {
         "restore" => {
             let mut stream = connect_i3().expect("Failed to connect to i3");
             restore_workspaces(&mut stream);
-            restore_processes();
             restore_metadata(&mut stream).expect("Failed to restore metadata");
+            restore_processes();
         }
         "rm" => {
             if let Err(e) = backup_and_clear_data() {
