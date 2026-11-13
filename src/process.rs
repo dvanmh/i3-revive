@@ -285,6 +285,57 @@ fn get_process_cwd(pid: u32, is_terminal: bool) -> io::Result<String> {
     Ok(path.into_os_string().into_string().unwrap())
 }
 
+fn find_best_mapping<'a>(
+    mappings: &'a [WindowCommandMapping],
+    w: &i3_tree::Window,
+) -> Option<(&'a WindowCommandMapping, usize)> {
+    let mut best: Option<(&WindowCommandMapping, usize)> = None;
+    let mut best_score = 0;
+    for (i, mapping) in mappings.iter().enumerate() {
+        let title_regex = &mapping
+            .title
+            .as_ref()
+            .map(|str| Regex::new(str.as_str()).unwrap());
+        let class_regex = &mapping
+            .class
+            .as_ref()
+            .map(|str| Regex::new(str.as_str()).unwrap());
+
+        let mut score = 0;
+        if let Some(re) = title_regex.as_ref() {
+            if re.is_match(&w.name) {
+                score += 2;
+            } else {
+                continue;
+            }
+        }
+        if let Some(re) = class_regex.as_ref() {
+            if w.class
+                .as_deref()
+                .map(|class| re.is_match(class))
+                .unwrap_or(false)
+            {
+                score += 1;
+            } else {
+                continue;
+            }
+        }
+
+        if score > best_score {
+            best_score = score;
+            best = Some((mapping, i));
+        }
+    }
+    best
+}
+
+pub fn is_window_ignored(w: &i3_tree::Window) -> bool {
+    let config = CONFIG.get().unwrap();
+    find_best_mapping(&config.window_command_mappings, w)
+        .map(|(mapping, _)| mapping.ignore_window.is_some_and(|ignore| ignore))
+        .unwrap_or(false)
+}
+
 pub fn save_processes(windows: Vec<i3_tree::Window>) {
     let config = CONFIG.get().unwrap();
     let base_dirs = BaseDirs::new().expect("Failed to get base directories");
@@ -310,59 +361,20 @@ pub fn save_processes(windows: Vec<i3_tree::Window>) {
 
             let mut command: Option<Vec<String>> = None;
             let mut working_directory: Option<String> = None;
-            let mut matched_mapping: Option<&WindowCommandMapping> = None;
-            let mut matched_mapping_idx: Option<usize> = None;
-            let mut best_score = 0;
-            for (i, mapping) in config.window_command_mappings.iter().enumerate() {
-                let title_regex = &mapping
-                    .title
-                    .as_ref()
-                    .map(|str| Regex::new(str.as_str()).unwrap());
-                let class_regex = &mapping
-                    .class
-                    .as_ref()
-                    .map(|str| Regex::new(str.as_str()).unwrap());
 
-                let mut score = 0;
-                if let Some(re) = title_regex.as_ref() {
-                    if re.is_match(&w.name) {
-                        score += 2;
-                    } else {
-                        continue;
-                    }
-                }
-                if let Some(re) = class_regex.as_ref() {
-                    if w.class
-                        .as_deref()
-                        .map(|class| re.is_match(class))
-                        .unwrap_or(false)
-                    {
-                        score += 1;
-                    } else {
-                        continue;
-                    }
-                }
+            let matched_mapping = find_best_mapping(&config.window_command_mappings, w);
 
-                if score > best_score {
-                    best_score = score;
-                    matched_mapping = Some(mapping);
-                    matched_mapping_idx = Some(i);
-                }
-            }
-
-            if let Some(mapping) = matched_mapping {
+            if let Some((mapping, mapping_idx)) = matched_mapping {
                 if mapping.ignored.is_some_and(|ignored| ignored) {
                     return None;
                 }
 
-                if let Some(mapping_idx) = matched_mapping_idx {
-                    if mapping.once.is_some_and(|once| once) {
-                        if once_mappings.contains(&mapping_idx) {
-                            return None;
-                        }
-
-                        once_mappings.insert(mapping_idx);
+                if mapping.once.is_some_and(|once| once) {
+                    if once_mappings.contains(&mapping_idx) {
+                        return None;
                     }
+
+                    once_mappings.insert(mapping_idx);
                 }
 
                 if let Some(command_str) = &mapping.command {

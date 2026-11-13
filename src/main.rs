@@ -3,11 +3,12 @@ use directories::BaseDirs;
 use i3_revive::{
     config::load_config,
     i3_tree::{
-        find_workspaces, get_all_windows, remove_workspaces, restore_workspaces, save_workspaces,
+        find_workspaces, get_all_windows, remove_workspaces, remove_windows, restore_workspaces,
+        save_workspaces,
     },
     i3ipc::{connect_i3, get_tree},
     metadata::{remove_metadata, restore_metadata, save_metadata},
-    process::{remove_processes, restore_processes, save_processes},
+    process::{is_window_ignored, remove_processes, restore_processes, save_processes},
 };
 use std::{env, fs, io};
 
@@ -27,8 +28,12 @@ fn main() {
             let mut stream = connect_i3().expect("Failed to connect to i3");
             let root = get_tree(&mut stream).expect("Failed to get tree");
 
-            let workspaces = find_workspaces(root);
+            let mut workspaces = find_workspaces(root);
             let windows = get_all_windows(&workspaces);
+            let (windows, ignored_windows): (Vec<_>, Vec<_>) = windows
+                .into_iter()
+                .partition(|w| !is_window_ignored(w));
+            remove_windows(&mut workspaces, &ignored_windows);
 
             // Backup and clear existing data before saving new ones
             if let Err(e) = backup_and_clear_data() {

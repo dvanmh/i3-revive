@@ -87,6 +87,30 @@ pub fn get_all_windows(trees: &Vec<Value>) -> Vec<Window> {
     res
 }
 
+pub fn remove_windows(workspaces: &mut [Value], wins: &[Window]) {
+    for ws in workspaces.iter_mut() {
+        prune_windows(ws, wins);
+    }
+}
+
+fn prune_windows(node: &mut Value, wins: &[Window]) {
+    for key in ["nodes", "floating_nodes"] {
+        if let Some(children) = node.get_mut(key).and_then(Value::as_array_mut) {
+            children.retain(|c| !is_ignored_leaf(c, wins));
+            for child in children.iter_mut() {
+                prune_windows(child, wins);
+            }
+        }
+    }
+}
+
+fn is_ignored_leaf(node: &Value, wins: &[Window]) -> bool {
+    node.get("window").is_some_and(|w| {
+        w.as_u64()
+            .is_some_and(|id| wins.iter().any(|w| w.id == id as u32))
+    }) && is_leaf_node(node.as_object().unwrap())
+}
+
 pub fn save_workspaces(mut workspaces: Vec<Value>) {
     let base_dirs = BaseDirs::new().expect("Failed to get base directories");
     let mut dir = base_dirs.data_local_dir().to_path_buf();
@@ -339,10 +363,7 @@ fn convert_to_layout(tree: &mut Value) {
                         if let Some(mode) = crit.get("instance") {
                             swallow.insert(
                                 "instance".to_string(),
-                                Value::String(swallow_regex(
-                                    instance.as_str().unwrap(),
-                                    mode,
-                                )),
+                                Value::String(swallow_regex(instance.as_str().unwrap(), mode)),
                             );
                         }
                     }

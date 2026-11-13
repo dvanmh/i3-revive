@@ -109,6 +109,7 @@ pub struct WindowCommandMapping {
     pub working_directory: Option<String>,
     pub once: Option<bool>,
     pub ignored: Option<bool>,
+    pub ignore_window: Option<bool>,
 }
 
 #[derive(Deserialize, Debug)]
